@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Real-Time AI Call Detection</title>
+</head>
+<body>
+  <h1>🎙️ Real-Time Call Detection</h1>
+  <button id="startBtn">Start Streaming</button>
+  <div id="status"></div>
+
+  <script>
+    let socket;
+    let mediaRecorder;
+
+    document.getElementById("startBtn").onclick = async () => {
+      socket = new WebSocket("ws://127.0.0.1:8000/stream-audio");
+
+      socket.onmessage = (event) => {
+        let data = JSON.parse(event.data);
+        document.getElementById("status").innerText =
+          `AI Confidence: ${data.ai_confidence}, AI Call: ${data.is_ai}`;
+      };
+
+      let stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
+          event.data.arrayBuffer().then(buffer => {
+            socket.send(buffer);
+          });
+        }
+      };
+
+      mediaRecorder.start(1000); // send audio chunks every 1s
+    };
+  </script>
+</body>
+</html>

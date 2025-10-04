@@ -1,93 +1,97 @@
 import time
-from fastapi import FastAPI
+from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
-from typing import Literal
+from typing import Dict, Any
 
-# --- 1. FastAPI Application Initialization ---
-# Create the FastAPI app instance
+# Initialize FastAPI app
 app = FastAPI(
-    title="AI Call Screening Service",
-    description="Backend for real-time reputation analysis of incoming call numbers."
+    title="AI Vishing Detection Backend",
+    description="Provides real-time reputation analysis for numbers and voice analysis for audio files."
 )
 
-# --- NEW: Root Endpoint for Health Check ---
-@app.get("/")
-def read_root():
-    return {"status": "Service Running", "message": "Access /docs for the API documentation."}
-# ---------------------------------------------
+# --- Schemas for Number Analysis (Layer 1: Predictive Defense) ---
 
-
-# --- 2. Request and Response Schemas (Pydantic Models) ---
-
-# Define the data structure for the incoming request from the Kotlin service
 class NumberAnalysisRequest(BaseModel):
-    # The phone number to be analyzed, including country code (e.g., +15551234567)
     phone_number: str
 
-# Define the data structure for the response sent back to the Kotlin service
-# The result field uses Literal to restrict possible classification values
 class AnalysisResult(BaseModel):
-    # Classification: NORMAL, SPAM, or AI_SCAM
-    classification: Literal["NORMAL", "SPAM", "AI_SCAM"]
-    # Confidence score (0.0 to 1.0)
+    classification: str
     confidence: float
-    # An optional human-readable message for logging
     message: str
 
+# --- Core Detection Logic ---
 
-# --- 3. Core AI Analysis Function (Simulated) ---
+def run_reputation_analysis(number: str) -> AnalysisResult:
+    """
+    Simulates a machine learning model analyzing a phone number's reputation
+    based on calling patterns (metadata).
+    """
+    # Simulate network/AI processing time (CRITICAL for real-time testing)
+    time.sleep(0.5)
 
-def run_reputation_analysis(number: str) -> str:
-    """
-    Simulates the AI model lookup based on number reputation.
-    
-    In a production system, this function would:
-    1. Query a Firestore/Redis database for known spam lists.
-    2. Access a trained model (e.g., a simple scikit-learn model or a larger ML service)
-       that scores the number based on calling patterns, frequency, and carrier data.
-    """
-    
-    # Simulate high-confidence AI Scam detection (e.g., known high-volume pattern)
+    # Simplified Decision Logic (MOCK ML MODEL)
     if number.endswith("9999"):
-        return "AI_SCAM"
-    
-    # Simulate general spam/robocall detection (e.g., known marketing line)
-    if number.endswith("5555"):
-        return "SPAM"
-        
-    # Simulate a verified number or normal user
-    return "NORMAL"
+        return AnalysisResult(
+            classification="AI_SCAM", 
+            confidence=0.98, 
+            message="High Confidence: Synthetic Voice/Vishing Pattern Detected."
+        )
+    elif number.endswith("5555"):
+        return AnalysisResult(
+            classification="SPAM",
+            confidence=0.07,
+            message="Low Confidence: Known Telemarketer/Robocall Number."
+        )
+    else:
+        return AnalysisResult(
+            classification="NORMAL", 
+            confidence=0.0, 
+            message="Number passed reputation check."
+        )
 
-# --- 4. API Endpoint Definition ---
+# --- Endpoints ---
+
+@app.get("/")
+def read_root():
+    """Health check endpoint to confirm the server is running."""
+    return {"status": "Service Running", "message": "Access /docs for the API documentation."}
 
 @app.post("/analyze", response_model=AnalysisResult)
 async def analyze_number(request: NumberAnalysisRequest):
     """
-    Analyzes an incoming phone number and returns a classification.
+    Analyzes the phone number metadata for pre-answer detection (Layer 1).
     """
-    
-    # 🚨 Crucial: Simulate processing time. Keep this under 2 seconds!
-    time.sleep(0.5) 
+    return run_reputation_analysis(request.phone_number)
 
-    number = request.phone_number
+@app.post("/analyze_voice", response_model=AnalysisResult)
+async def analyze_voice(audio_file: UploadFile = File(...)):
+    """
+    Analyzes an audio snippet (MP3/WAV) for deepfake characteristics (Layer 2).
+    This logic is triggered after the user answers the call.
+    """
+    # 🚨 NOTE: In a full project, this is where you would integrate
+    # an anti-spoofing ML library (e.g., from Hugging Face or Librosa)
+    # to extract features (like MFCCs) and classify the audio.
     
-    # Get the simulated AI classification
-    classification = run_reputation_analysis(number)
+    # 1. Read the audio file into memory (or save it to disk for analysis)
+    contents = await audio_file.read()
     
-    # Set confidence and message based on classification
-    if classification == "AI_SCAM":
-        confidence = 0.95
-        message = "High-confidence detection: Number matches known AI-generated robocall pattern."
-    elif classification == "SPAM":
-        confidence = 0.75
-        message = "Medium-confidence detection: Number is flagged as general commercial spam."
+    # 2. MOCK VOICE ANALYSIS LOGIC: Check file size to simulate detection
+    
+    if len(contents) > 200000: # Arbitrary size to simulate a long, detailed recording
+        # Simulate high CPU load for voice analysis
+        time.sleep(2.0) 
+        
+        return AnalysisResult(
+            classification="HUMAN",
+            confidence=0.99,
+            message=f"Voice verified as human based on acoustic complexity (Size: {len(contents)} bytes)."
+        )
     else:
-        confidence = 0.50
-        message = "Number appears normal or verified."
-
-    # Return the structured result
-    return AnalysisResult(
-        classification=classification,
-        confidence=confidence,
-        message=message
-    )
+        # Simulate detection of a short, synthesized voice artifact
+        time.sleep(1.0) 
+        return AnalysisResult(
+            classification="VOICE_DEEPFAKE",
+            confidence=0.85,
+            message=f"High Risk: Voice signature suggests synthetic generation (Size: {len(contents)} bytes)."
+        )

@@ -1,4 +1,8 @@
 import time
+import numpy as np
+import io
+import librosa
+import soundfile as sf # Used for safe audio I/O on deployment platforms
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Any
@@ -66,32 +70,61 @@ async def analyze_number(request: NumberAnalysisRequest):
 @app.post("/analyze_voice", response_model=AnalysisResult)
 async def analyze_voice(audio_file: UploadFile = File(...)):
     """
-    Analyzes an audio snippet (MP3/WAV) for deepfake characteristics (Layer 2).
-    This logic is triggered after the user answers the call.
+    Analyzes an audio snippet (MP4/AAC) for deepfake characteristics (Layer 2)
+    using real acoustic feature extraction (MFCCs).
     """
-    # 🚨 NOTE: In a full project, this is where you would integrate
-    # an anti-spoofing ML library (e.g., from Hugging Face or Librosa)
-    # to extract features (like MFCCs) and classify the audio.
+    # Simulate AI processing time
+    time.sleep(1.5) 
     
-    # 1. Read the audio file into memory (or save it to disk for analysis)
-    contents = await audio_file.read()
-    
-    # 2. MOCK VOICE ANALYSIS LOGIC: Check file size to simulate detection
-    
-    if len(contents) > 200000: # Arbitrary size to simulate a long, detailed recording
-        # Simulate high CPU load for voice analysis
-        time.sleep(2.0) 
+    try:
+        # Read the file content
+        contents = await audio_file.read()
         
+        # 1. Load audio data using soundfile (safer I/O)
+        audio_buffer = io.BytesIO(contents)
+        audio_data, sr = sf.read(audio_buffer)
+
+        # 2. Resample and ensure mono channel (standard ML preprocessing)
+        if audio_data.ndim > 1:
+            audio_data = np.mean(audio_data, axis=1) # Convert to mono
+
+        # Librosa feature extraction requires 16000 Hz often, resample if necessary
+        if sr != 16000:
+             audio_data = librosa.resample(audio_data, orig_sr=sr, target_sr=16000)
+             sr = 16000
+        
+        # 3. Feature Extraction (Mel-Frequency Cepstral Coefficients - Acoustic Fingerprint)
+        mfccs = librosa.feature.mfcc(y=audio_data, sr=sr, n_mfcc=40)
+        
+        # 4. Acoustic Analysis (Measure Stability/Smoothness - a common deepfake artifact)
+        # Calculate the variance of the mean MFCCs. Synthesized voices often show less variance.
+        mfcc_variance = np.var(np.mean(mfccs, axis=1))
+
+        # 5. Decision Based on Feature (MOCK DECISION LOGIC based on MFCC Variance)
+        
+        # Threshold: Synthesized audio is often "too clean" (low variance).
+        SYNTHETIC_THRESHOLD = 0.001 
+        
+        if mfcc_variance < SYNTHETIC_THRESHOLD:
+            # Low variance suggests synthetic smoothness
+            return AnalysisResult(
+                classification="VOICE_DEEPFAKE",
+                confidence=0.95,
+                message=f"Deepfake Risk: Acoustic variance is low ({mfcc_variance:.6f}), suggesting synthetic generation."
+            )
+        else:
+            # Higher variance suggests human speech irregularities
+            return AnalysisResult(
+                classification="HUMAN",
+                confidence=0.99,
+                message=f"Voice verified as human (Variance: {mfcc_variance:.6f})."
+            )
+
+    except Exception as e:
+        print(f"ML Processing Error: {e}")
+        # Return a structure that Kotlin can safely parse
         return AnalysisResult(
-            classification="HUMAN",
-            confidence=0.99,
-            message=f"Voice verified as human based on acoustic complexity (Size: {len(contents)} bytes)."
-        )
-    else:
-        # Simulate detection of a short, synthesized voice artifact
-        time.sleep(1.0) 
-        return AnalysisResult(
-            classification="VOICE_DEEPFAKE",
-            confidence=0.85,
-            message=f"High Risk: Voice signature suggests synthetic generation (Size: {len(contents)} bytes)."
+            classification="API_ERROR", 
+            confidence=0.0, 
+            message=f"ML Analysis Failed: {str(e)}"
         )

@@ -3,3 +3,7 @@ uvicorn
 pydantic
 gunicorn
 python-multipart
+soundfile
+numpy
+scipy
+librosa

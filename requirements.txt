@@ -7,3 +7,5 @@ soundfile
 numpy
 scipy
 librosa
+torch 
+transformers

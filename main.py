@@ -3,15 +3,18 @@ import numpy as np
 import io
 import librosa
 import soundfile as sf
-import torch 
-from transformers import AutoProcessor, AutoModelForAudioClassification, pipeline 
+import torch # CRITICAL: Deep Learning Framework
+from transformers import AutoProcessor, AutoModelForAudioClassification, pipeline # CRITICAL: Hugging Face Libraries
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Any
 
 # --- GLOBAL MODEL SETUP (LOADED ONCE ON SERVER START) ---
 # NOTE: This model is a general-purpose audio classification model for demonstration.
+# In your final project, replace 'facebook/wav2vec2-base-960h' with a model
+# fine-tuned for anti-spoofing (ASVspoof) if you complete the training phase.
 try:
+    # Use a pre-trained ASR model for feature extraction (fast and functional)
     MODEL_NAME = "facebook/wav2vec2-base-960h" 
     processor = AutoProcessor.from_pretrained(MODEL_NAME)
     model = AutoModelForAudioClassification.from_pretrained(MODEL_NAME)
@@ -64,21 +67,18 @@ def run_reputation_analysis(number: str) -> AnalysisResult:
 
 def run_ml_inference(audio_data, sr) -> AnalysisResult:
     """
-    Runs actual ML inference using the loaded Hugging Face model or falls back to Heuristic.
+    Runs actual ML inference using the loaded Hugging Face model or falls back.
     """
     if model is None:
-        # --- HEURISTIC FALLBACK (Corrected for higher sensitivity) ---
+        # --- HEURISTIC FALLBACK (For Stable Deployment) ---
         mfccs = librosa.feature.mfcc(y=audio_data, sr=sr, n_mfcc=40)
         mfcc_variance = np.var(np.mean(mfccs, axis=1))
-        
-        # CRITICAL FIX: Increased threshold to 0.1 for high sensitivity
         SYNTHETIC_THRESHOLD = 0.1 
         
         if mfcc_variance < SYNTHETIC_THRESHOLD:
-            # Low variance suggests synthetic smoothness
             return AnalysisResult(
                 classification="VOICE_DEEPFAKE",
-                confidence=0.92,
+                confidence=0.85,
                 message=f"[HEURISTIC FALLBACK] Too smooth, suggests synthesis (Var: {mfcc_variance:.6f})."
             )
         else:
@@ -98,9 +98,11 @@ def run_ml_inference(audio_data, sr) -> AnalysisResult:
         with torch.no_grad():
             logits = model(**inputs).logits
         
-        # 3. Classification (MOCK: Update with specific ASVspoof labels in final project)
+        # 3. Simple Classification (This is heavily dependent on the model's original training)
         predicted_class_id = logits.argmax().item()
         
+        # NOTE: Since we are using a general ASR base model, the labels below are MOCK
+        # and should be updated to check for 'spoof' or 'bonafide' labels if using an ASV model.
         if predicted_class_id % 2 == 0:
             verdict = "VOICE_DEEPFAKE"
             confidence = 0.95
@@ -157,4 +159,3 @@ async def analyze_voice_endpoint(audio_file: UploadFile = File(...)):
             confidence=0.0, 
             message=f"ML Analysis Failed: {str(e)}"
         )
-    

@@ -78,7 +78,7 @@ def run_ml_inference(contents: bytes) -> AnalysisResult:
         # 3. Decision Based on Feature (Using the high sensitivity threshold)
         
         # Threshold: Low deviation suggests extreme smoothness (synthetic silence or tone).
-        SYNTHETIC_THRESHOLD_LEAN = 150.0 
+        SYNTHETIC_THRESHOLD_LEAN = 0.001 
         
         if std_dev < SYNTHETIC_THRESHOLD_LEAN:
             # Low variance suggests synthetic smoothness

@@ -1,11 +1,7 @@
-fastapi 
+fastapi
 uvicorn
 pydantic
 gunicorn
 python-multipart
-soundfile
+# CRITICAL FIX: Only use the smallest necessary library for numerical computation
 numpy
-scipy
-librosa
-torch 
-transformers

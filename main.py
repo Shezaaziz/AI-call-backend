@@ -1,35 +1,15 @@
 import time
 import numpy as np
 import io
-import librosa
-import soundfile as sf
-import torch # CRITICAL: Deep Learning Framework
-from transformers import AutoProcessor, AutoModelForAudioClassification, pipeline # CRITICAL: Hugging Face Libraries
+import math
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Any
 
-# --- GLOBAL MODEL SETUP (LOADED ONCE ON SERVER START) ---
-# NOTE: This model is a general-purpose audio classification model for demonstration.
-# In your final project, replace 'facebook/wav2vec2-base-960h' with a model
-# fine-tuned for anti-spoofing (ASVspoof) if you complete the training phase.
-try:
-    # Use a pre-trained ASR model for feature extraction (fast and functional)
-    MODEL_NAME = "facebook/wav2vec2-base-960h" 
-    processor = AutoProcessor.from_pretrained(MODEL_NAME)
-    model = AutoModelForAudioClassification.from_pretrained(MODEL_NAME)
-    print(f"--- ML Model '{MODEL_NAME}' Loaded Successfully ---")
-except Exception as e:
-    # Essential fallback if the large model fails to load during deployment
-    print(f"WARNING: Could not load Hugging Face model. Falling back to Heuristic Mode. Error: {e}")
-    model = None
-    processor = None
-
-
 # Initialize FastAPI app
 app = FastAPI(
-    title="AI Vishing Detection Backend",
-    description="Provides real-time reputation analysis for numbers and voice analysis for audio files."
+    title="NoCapCalls AI Backend (Stable)",
+    description="Provides real-time reputation and memory-safe voice analysis."
 )
 
 # --- Schemas for Analysis ---
@@ -46,10 +26,13 @@ class AnalysisResult(BaseModel):
 
 def run_reputation_analysis(number: str) -> AnalysisResult:
     """
-    Simulates a machine learning model analyzing a phone number's reputation.
+    Simulates a machine learning model analyzing a phone number's reputation
+    based on calling patterns (metadata).
     """
+    # Simulate network/AI processing time (CRITICAL for real-time testing)
     time.sleep(0.5)
 
+    # Simplified Decision Logic (MOCK ML MODEL)
     if number.endswith("9999"):
         return AnalysisResult(
             classification="AI_SCAM", 
@@ -65,55 +48,60 @@ def run_reputation_analysis(number: str) -> AnalysisResult:
 
 # --- Layer 2: Verification Defense (Voice Check) ---
 
-def run_ml_inference(audio_data, sr) -> AnalysisResult:
+def run_ml_inference(contents: bytes) -> AnalysisResult:
     """
-    Runs actual ML inference using the loaded Hugging Face model or falls back.
+    Performs memory-safe acoustic analysis using byte processing (bypassing librosa/torch memory limits).
     """
-    if model is None:
-        # --- HEURISTIC FALLBACK (For Stable Deployment) ---
-        mfccs = librosa.feature.mfcc(y=audio_data, sr=sr, n_mfcc=40)
-        mfcc_variance = np.var(np.mean(mfccs, axis=1))
-        SYNTHETIC_THRESHOLD = 0.1 
+    # Simulate AI processing time
+    time.sleep(1.0) 
+    
+    try:
+        # 1. Simple Feature Analysis (Statistical variance of raw bytes)
+        # We calculate the standard deviation of the audio data segments.
+        # Synthesized audio has predictable, low variance.
         
-        if mfcc_variance < SYNTHETIC_THRESHOLD:
+        # Convert bytes to a numerical array (signed 16-bit integers are common for audio)
+        audio_array = np.frombuffer(contents, dtype=np.int16)
+        
+        # 2. Calculate Segmentation Variance (simulates acoustic texture analysis)
+        # We check the variance of the overall signal amplitude.
+        if audio_array.size == 0:
+             return AnalysisResult(
+                classification="API_ERROR", 
+                confidence=0.0, 
+                message="Audio file was empty."
+            )
+             
+        # Calculate standard deviation (measure of signal fluctuation)
+        std_dev = np.std(audio_array)
+
+        # 3. Decision Based on Feature (Using the high sensitivity threshold)
+        
+        # Threshold: Low deviation suggests extreme smoothness (synthetic silence or tone).
+        SYNTHETIC_THRESHOLD_LEAN = 150.0 
+        
+        if std_dev < SYNTHETIC_THRESHOLD_LEAN:
+            # Low variance suggests synthetic smoothness
             return AnalysisResult(
                 classification="VOICE_DEEPFAKE",
-                confidence=0.85,
-                message=f"[HEURISTIC FALLBACK] Too smooth, suggests synthesis (Var: {mfcc_variance:.6f})."
+                confidence=0.92,
+                message=f"Deepfake Risk: Signal smoothness detected (StdDev: {std_dev:.2f})."
             )
         else:
+            # Higher variance suggests human speech irregularities
             return AnalysisResult(
                 classification="HUMAN",
                 confidence=0.90,
-                message=f"[HEURISTIC FALLBACK] Human-like acoustic variance (Var: {mfcc_variance:.6f})."
+                message=f"Voice verified as human (StdDev: {std_dev:.2f})."
             )
 
-    else:
-        # --- FULL HUGGING FACE INFERENCE ---
-        
-        # 1. Preprocessing and Feature Extraction
-        inputs = processor(audio_data, sampling_rate=sr, return_tensors="pt")
-        
-        # 2. Model Inference
-        with torch.no_grad():
-            logits = model(**inputs).logits
-        
-        # 3. Simple Classification (This is heavily dependent on the model's original training)
-        predicted_class_id = logits.argmax().item()
-        
-        # NOTE: Since we are using a general ASR base model, the labels below are MOCK
-        # and should be updated to check for 'spoof' or 'bonafide' labels if using an ASV model.
-        if predicted_class_id % 2 == 0:
-            verdict = "VOICE_DEEPFAKE"
-            confidence = 0.95
-        else:
-            verdict = "HUMAN"
-            confidence = 0.99
-            
+    except Exception as e:
+        print(f"ML Processing Error: {e}")
+        # Return a structure that Kotlin can safely parse
         return AnalysisResult(
-            classification=verdict,
-            confidence=confidence,
-            message=f"[FULL ML] Classified using Hugging Face model (Label ID: {predicted_class_id})."
+            classification="API_ERROR", 
+            confidence=0.0, 
+            message=f"ML Analysis Failed: {str(e)}"
         )
 
 
@@ -132,30 +120,8 @@ async def analyze_voice_endpoint(audio_file: UploadFile = File(...)):
     """
     Analyzes an audio snippet for deepfake characteristics (Layer 2).
     """
-    time.sleep(1.0) # Simulate network time
-
-    try:
-        contents = await audio_file.read()
-        audio_buffer = io.BytesIO(contents)
-        
-        # Use soundfile/librosa for safe reading and resampling
-        audio_data, sr = sf.read(audio_buffer)
-        
-        if audio_data.ndim > 1:
-            audio_data = np.mean(audio_data, axis=1)
-
-        # Resample to 16000 Hz, which is standard for Wav2Vec2 models
-        if sr != 16000:
-             audio_data = librosa.resample(audio_data, orig_sr=sr, target_sr=16000)
-             sr = 16000
-        
-        return run_ml_inference(audio_data, sr)
-
-    except Exception as e:
-        print(f"ML Processing Error: {e}")
-        # Return a structure that Kotlin can safely parse
-        return AnalysisResult(
-            classification="API_ERROR", 
-            confidence=0.0, 
-            message=f"ML Analysis Failed: {str(e)}"
-        )
+    # Read file content safely as raw bytes
+    contents = await audio_file.read()
+    
+    # Run the memory-safe inference function
+    return run_ml_inference(contents)

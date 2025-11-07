@@ -29,10 +29,8 @@ def run_reputation_analysis(number: str) -> AnalysisResult:
     Simulates a machine learning model analyzing a phone number's reputation
     based on calling patterns (metadata).
     """
-    # Simulate network/AI processing time (CRITICAL for real-time testing)
     time.sleep(0.5)
 
-    # Simplified Decision Logic (MOCK ML MODEL)
     if number.endswith("9999"):
         return AnalysisResult(
             classification="AI_SCAM", 
@@ -52,19 +50,13 @@ def run_ml_inference(contents: bytes) -> AnalysisResult:
     """
     Performs memory-safe acoustic analysis using byte processing (bypassing librosa/torch memory limits).
     """
-    # Simulate AI processing time
-    time.sleep(1.0) 
+    time.sleep(1.0) # Simulate AI processing time
     
     try:
-        # 1. Simple Feature Analysis (Statistical variance of raw bytes)
-        # We calculate the standard deviation of the audio data segments.
-        # Synthesized audio has predictable, low variance.
-        
-        # Convert bytes to a numerical array (signed 16-bit integers are common for audio)
+        # 1. Convert bytes to a numerical array (signed 16-bit integers are common for audio)
         audio_array = np.frombuffer(contents, dtype=np.int16)
         
-        # 2. Calculate Segmentation Variance (simulates acoustic texture analysis)
-        # We check the variance of the overall signal amplitude.
+        # 2. Calculate Segmentation Variance (Standard deviation of raw amplitude)
         if audio_array.size == 0:
              return AnalysisResult(
                 classification="API_ERROR", 
@@ -72,13 +64,11 @@ def run_ml_inference(contents: bytes) -> AnalysisResult:
                 message="Audio file was empty."
             )
              
-        # Calculate standard deviation (measure of signal fluctuation)
+        # Calculate standard deviation (measure of signal fluctuation/acoustic smoothness)
         std_dev = np.std(audio_array)
 
-        # 3. Decision Based on Feature (Using the high sensitivity threshold)
-        
-        # Threshold: Low deviation suggests extreme smoothness (synthetic silence or tone).
-        SYNTHETIC_THRESHOLD_LEAN = 0.001 
+        # CRITICAL FIX: Extreme sensitivity value (0.1) for low-noise detection
+        SYNTHETIC_THRESHOLD_LEAN = 0.1 
         
         if std_dev < SYNTHETIC_THRESHOLD_LEAN:
             # Low variance suggests synthetic smoothness
@@ -88,7 +78,6 @@ def run_ml_inference(contents: bytes) -> AnalysisResult:
                 message=f"Deepfake Risk: Signal smoothness detected (StdDev: {std_dev:.2f})."
             )
         else:
-            # Higher variance suggests human speech irregularities
             return AnalysisResult(
                 classification="HUMAN",
                 confidence=0.90,

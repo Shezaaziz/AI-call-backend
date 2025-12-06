@@ -1,8 +1,6 @@
 import time
 import numpy as np
 import io
-import librosa # Still useful for acoustic preprocessing techniques
-import math
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Any
@@ -56,12 +54,10 @@ def run_ml_inference(contents: bytes) -> AnalysisResult:
     
     try:
         # 1. Convert bytes to a numerical array (signed 16-bit integers are common for audio)
-        # Use np.frombuffer for memory safety
+        # Use np.frombuffer for memory safety (CRITICAL FIX)
         audio_array = np.frombuffer(contents, dtype=np.int16)
         
         # 2. Calculate Segmentation Variance (Standard deviation of raw amplitude)
-        # We calculate the standard deviation (measure of signal fluctuation).
-        
         if audio_array.size == 0:
              return AnalysisResult(
                 classification="API_ERROR", 
@@ -75,7 +71,7 @@ def run_ml_inference(contents: bytes) -> AnalysisResult:
 
         # 3. Decision Based on Feature (Using the high sensitivity threshold)
         
-        # Threshold: We use a highly sensitive value to flag any non-human, low-variance audio
+        # Threshold: We use a highly sensitive value (0.1) to flag any non-human, low-variance audio
         SYNTHETIC_THRESHOLD_LEAN = 0.1 
         
         if std_dev < SYNTHETIC_THRESHOLD_LEAN:
@@ -86,7 +82,6 @@ def run_ml_inference(contents: bytes) -> AnalysisResult:
                 message=f"Deepfake Risk: Signal smoothness detected (StdDev: {std_dev:.2f})."
             )
         else:
-            # Higher variance suggests human speech irregularities
             return AnalysisResult(
                 classification="HUMAN",
                 confidence=0.90,

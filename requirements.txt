@@ -3,10 +3,5 @@ uvicorn
 pydantic
 gunicorn
 python-multipart
-# CRITICAL: Libraries for ML voice analysis
-# Note: We use specific, stable versions of TensorFlow for compatibility
-tensorflow-io==0.35.0
-tensorflow==2.15.0 
-librosa
+# CRITICAL: Only use the smallest necessary library for numerical computation
 numpy
-scipy

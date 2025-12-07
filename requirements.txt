@@ -3,5 +3,9 @@ uvicorn
 pydantic
 gunicorn
 python-multipart
-# CRITICAL: Only use the smallest necessary library for numerical computation
+# CRITICAL: Libraries for Hugging Face audio processing
+torch
+torchaudio
+transformers
+librosa
 numpy

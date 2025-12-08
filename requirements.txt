@@ -3,9 +3,5 @@ uvicorn
 pydantic
 gunicorn
 python-multipart
-## CRITICAL: Libraries for Hugging Face audio processing
- torch
-torchaudio
-transformers
-librosa
+# CRITICAL FIX: Only include basic NumPy for memory-safe acoustic analysis
 numpy

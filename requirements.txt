@@ -3,8 +3,8 @@ uvicorn
 pydantic
 gunicorn
 python-multipart
-# CRITICAL: Libraries for Hugging Face audio processing
-torch
+## CRITICAL: Libraries for Hugging Face audio processing
+ torch
 torchaudio
 transformers
 librosa

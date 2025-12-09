@@ -5,3 +5,4 @@ gunicorn
 python-multipart
 # CRITICAL FIX: Only include basic NumPy for memory-safe acoustic analysis
 numpy
+torch

@@ -1,88 +1,109 @@
 import time
 import numpy as np
+import io
 from fastapi import FastAPI, File, UploadFile
 from pydantic import BaseModel
+from typing import Optional
+import torch
+import torchaudio
 
-app = FastAPI(title="NoCapCalls AI Backend (Enhanced)", description="Memory-safe voice analysis with DSP features.")
+# --- FastAPI app ---
+app = FastAPI(
+    title="NoCapCalls AI Backend (Hybrid)",
+    description="Real-time number + voice analysis with hybrid Layer 2 detection."
+)
 
 # --- Schemas ---
+class NumberAnalysisRequest(BaseModel):
+    phone_number: str
 
 class AnalysisResult(BaseModel):
     classification: str
     confidence: float
     message: str
 
-# --- Enhanced Voice Analysis ---
+# --- Layer 1: Number reputation check ---
+def run_reputation_analysis(number: str) -> AnalysisResult:
+    time.sleep(0.5)  # simulate latency
+    if number.endswith("9999"):
+        return AnalysisResult(
+            classification="AI_SCAM", 
+            confidence=0.98, 
+            message="High Confidence: Synthetic Voice/Vishing Pattern Detected."
+        )
+    else:
+        return AnalysisResult(
+            classification="NORMAL", 
+            confidence=0.0, 
+            message="Number passed reputation check."
+        )
 
-def run_ml_inference(contents: bytes) -> AnalysisResult:
-    """
-    Enhanced DSP-based deepfake detection:
-    Uses multiple acoustic features:
-    - Standard deviation (signal variance)
-    - Zero-crossing rate (ZCR)
-    - Spectral flatness
-    - Harmonic-to-noise ratio
-    """
-    try:
-        audio = np.frombuffer(contents, dtype=np.int16).astype(np.float32)
-        if audio.size == 0:
-            return AnalysisResult("API_ERROR", 0.0, "Audio file empty.")
+# --- Load Tiny ML Model for Layer 2 (optional) ---
+try:
+    ml_model = torch.jit.load("tiny_deepfake_model.pt")
+    ml_model.eval()
+    print("[INFO] Tiny ML model loaded successfully.")
+except Exception as e:
+    ml_model = None
+    print(f"[WARNING] Could not load ML model: {e}")
 
-        # Normalize audio
-        audio /= np.max(np.abs(audio)) + 1e-9
+# --- Heuristic Pre-filter ---
+def is_suspicious_audio(contents: bytes) -> bool:
+    audio_array = np.frombuffer(contents, dtype=np.int16)
+    if audio_array.size == 0:
+        return False
+    std_dev = np.std(audio_array)
+    SYNTHETIC_THRESHOLD = 0.15
+    return std_dev < SYNTHETIC_THRESHOLD
 
-        # --- Feature 1: Standard deviation ---
-        std_dev = np.std(audio)
-
-        # --- Feature 2: Zero-Crossing Rate ---
-        zcr = ((audio[:-1] * audio[1:]) < 0).sum() / len(audio)
-
-        # --- Feature 3: Spectral Flatness ---
-        fft = np.fft.rfft(audio)
-        mag = np.abs(fft) + 1e-9
-        spectral_flatness = (np.exp(np.mean(np.log(mag))) / np.mean(mag))
-
-        # --- Feature 4: Harmonic-to-Noise Ratio approximation ---
-        # Use auto-correlation peak
-        autocorr = np.correlate(audio, audio, mode='full')
-        autocorr = autocorr[len(autocorr)//2:]
-        hnr = np.max(autocorr[1:]) / (np.mean(autocorr[1:]) + 1e-9)
-
-        # --- Decision Logic ---
-        score = 0
-        # Low variance → synthetic
-        if std_dev < 0.05: score += 1
-        # Very low or very high ZCR → synthetic
-        if zcr < 0.01 or zcr > 0.15: score += 1
-        # Flat spectrum → synthetic
-        if spectral_flatness > 0.5: score += 1
-        # HNR too smooth → synthetic
-        if hnr > 10: score += 1
-
-        # Combine score into classification
-        if score >= 2:
-            classification = "VOICE_DEEPFAKE"
-            confidence = min(0.95, 0.7 + 0.05 * score)
-            message = f"Deepfake Risk Detected (Score: {score}, StdDev: {std_dev:.3f}, ZCR: {zcr:.3f}, Flatness: {spectral_flatness:.3f}, HNR: {hnr:.2f})"
+# --- Tiny ML Inference ---
+def run_tiny_model(contents: bytes) -> AnalysisResult:
+    if ml_model is None:
+        return AnalysisResult(
+            classification="VOICE_DEEPFAKE",
+            confidence=0.5,
+            message="ML model unavailable. Defaulting to Deepfake."
+        )
+    audio_tensor, sr = torchaudio.load(io.BytesIO(contents))
+    if sr != 16000:
+        resampler = torchaudio.transforms.Resample(sr, 16000)
+        audio_tensor = resampler(audio_tensor)
+    with torch.no_grad():
+        logits = ml_model(audio_tensor)
+        prob = torch.sigmoid(logits).item() if isinstance(logits, torch.Tensor) else float(logits)
+        if prob > 0.5:
+            return AnalysisResult(
+                classification="VOICE_DEEPFAKE",
+                confidence=prob,
+                message="Deepfake detected by ML model."
+            )
         else:
-            classification = "HUMAN"
-            confidence = min(0.95, 0.7 + 0.05 * (4 - score))
-            message = f"Voice verified as human (Score: {score}, StdDev: {std_dev:.3f}, ZCR: {zcr:.3f}, Flatness: {spectral_flatness:.3f}, HNR: {hnr:.2f})"
+            return AnalysisResult(
+                classification="HUMAN",
+                confidence=1 - prob,
+                message="Verified human voice by ML model."
+            )
 
-        return AnalysisResult(classification, confidence, message)
+# --- Layer 2: Hybrid Voice Check ---
+def run_ml_inference(contents: bytes) -> AnalysisResult:
+    if not is_suspicious_audio(contents):
+        return AnalysisResult(
+            classification="HUMAN",
+            confidence=0.90,
+            message="Heuristic check passed (likely human)."
+        )
+    return run_tiny_model(contents)
 
-    except Exception as e:
-        return AnalysisResult("API_ERROR", 0.0, f"ML Analysis Failed: {str(e)}")
+# --- API Endpoints ---
+@app.get("/")
+def read_root():
+    return {"status": "Service Running", "message": "Access /docs for the API documentation."}
 
-
-# --- Endpoints ---
+@app.post("/analyze", response_model=AnalysisResult)
+async def analyze_number_endpoint(request: NumberAnalysisRequest):
+    return run_reputation_analysis(request.phone_number)
 
 @app.post("/analyze_voice", response_model=AnalysisResult)
 async def analyze_voice_endpoint(audio_file: UploadFile = File(...)):
     contents = await audio_file.read()
     return run_ml_inference(contents)
-
-
-@app.get("/")
-def read_root():
-    return {"status": "Service Running", "message": "Access /docs for API documentation."}

@@ -1,116 +1,88 @@
 import time
 import numpy as np
-import io
-import math
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile
 from pydantic import BaseModel
-from typing import Dict, Any
 
-# Initialize FastAPI app
-app = FastAPI(
-    title="NoCapCalls AI Backend (Stable)",
-    description="Provides real-time reputation and memory-safe voice analysis."
-)
+app = FastAPI(title="NoCapCalls AI Backend (Enhanced)", description="Memory-safe voice analysis with DSP features.")
 
-# --- Schemas for Analysis ---
-
-class NumberAnalysisRequest(BaseModel):
-    phone_number: str
+# --- Schemas ---
 
 class AnalysisResult(BaseModel):
     classification: str
     confidence: float
     message: str
 
-# --- Layer 1: Predictive Defense (Number Check) ---
-
-def run_reputation_analysis(number: str) -> AnalysisResult:
-    """
-    Simulates a machine learning model analyzing a phone number's reputation
-    based on calling patterns (metadata).
-    """
-    time.sleep(0.5)
-
-    if number.endswith("9999"):
-        return AnalysisResult(
-            classification="AI_SCAM", 
-            confidence=0.98, 
-            message="High Confidence: Synthetic Voice/Vishing Pattern Detected."
-        )
-    else:
-        return AnalysisResult(
-            classification="NORMAL", 
-            confidence=0.0, 
-            message="Number passed reputation check."
-        )
-
-# --- Layer 2: Verification Defense (Voice Check) ---
+# --- Enhanced Voice Analysis ---
 
 def run_ml_inference(contents: bytes) -> AnalysisResult:
     """
-    Performs memory-safe acoustic analysis using byte processing (bypassing librosa/torch memory limits).
+    Enhanced DSP-based deepfake detection:
+    Uses multiple acoustic features:
+    - Standard deviation (signal variance)
+    - Zero-crossing rate (ZCR)
+    - Spectral flatness
+    - Harmonic-to-noise ratio
     """
-    time.sleep(1.0) # Simulate AI processing time
-    
     try:
-        # 1. Convert bytes to a numerical array (signed 16-bit integers are common for audio)
-        audio_array = np.frombuffer(contents, dtype=np.int16)
-        
-        # 2. Calculate Segmentation Variance (Standard deviation of raw amplitude)
-        if audio_array.size == 0:
-             return AnalysisResult(
-                classification="API_ERROR", 
-                confidence=0.0, 
-                message="Audio file was empty."
-            )
-             
-        # Calculate standard deviation (measure of signal fluctuation/acoustic smoothness)
-        std_dev = np.std(audio_array)
+        audio = np.frombuffer(contents, dtype=np.int16).astype(np.float32)
+        if audio.size == 0:
+            return AnalysisResult("API_ERROR", 0.0, "Audio file empty.")
 
-        # CRITICAL FIX: Extreme sensitivity value (0.1) for low-noise detection
-        SYNTHETIC_THRESHOLD_LEAN = 0.1 
-        
-        if std_dev < SYNTHETIC_THRESHOLD_LEAN:
-            # Low variance suggests synthetic smoothness
-            return AnalysisResult(
-                classification="VOICE_DEEPFAKE",
-                confidence=0.92,
-                message=f"Deepfake Risk: Signal smoothness detected (StdDev: {std_dev:.2f})."
-            )
+        # Normalize audio
+        audio /= np.max(np.abs(audio)) + 1e-9
+
+        # --- Feature 1: Standard deviation ---
+        std_dev = np.std(audio)
+
+        # --- Feature 2: Zero-Crossing Rate ---
+        zcr = ((audio[:-1] * audio[1:]) < 0).sum() / len(audio)
+
+        # --- Feature 3: Spectral Flatness ---
+        fft = np.fft.rfft(audio)
+        mag = np.abs(fft) + 1e-9
+        spectral_flatness = (np.exp(np.mean(np.log(mag))) / np.mean(mag))
+
+        # --- Feature 4: Harmonic-to-Noise Ratio approximation ---
+        # Use auto-correlation peak
+        autocorr = np.correlate(audio, audio, mode='full')
+        autocorr = autocorr[len(autocorr)//2:]
+        hnr = np.max(autocorr[1:]) / (np.mean(autocorr[1:]) + 1e-9)
+
+        # --- Decision Logic ---
+        score = 0
+        # Low variance → synthetic
+        if std_dev < 0.05: score += 1
+        # Very low or very high ZCR → synthetic
+        if zcr < 0.01 or zcr > 0.15: score += 1
+        # Flat spectrum → synthetic
+        if spectral_flatness > 0.5: score += 1
+        # HNR too smooth → synthetic
+        if hnr > 10: score += 1
+
+        # Combine score into classification
+        if score >= 2:
+            classification = "VOICE_DEEPFAKE"
+            confidence = min(0.95, 0.7 + 0.05 * score)
+            message = f"Deepfake Risk Detected (Score: {score}, StdDev: {std_dev:.3f}, ZCR: {zcr:.3f}, Flatness: {spectral_flatness:.3f}, HNR: {hnr:.2f})"
         else:
-            return AnalysisResult(
-                classification="HUMAN",
-                confidence=0.90,
-                message=f"Voice verified as human (StdDev: {std_dev:.2f})."
-            )
+            classification = "HUMAN"
+            confidence = min(0.95, 0.7 + 0.05 * (4 - score))
+            message = f"Voice verified as human (Score: {score}, StdDev: {std_dev:.3f}, ZCR: {zcr:.3f}, Flatness: {spectral_flatness:.3f}, HNR: {hnr:.2f})"
+
+        return AnalysisResult(classification, confidence, message)
 
     except Exception as e:
-        print(f"ML Processing Error: {e}")
-        # Return a structure that Kotlin can safely parse
-        return AnalysisResult(
-            classification="API_ERROR", 
-            confidence=0.0, 
-            message=f"ML Analysis Failed: {str(e)}"
-        )
+        return AnalysisResult("API_ERROR", 0.0, f"ML Analysis Failed: {str(e)}")
 
 
 # --- Endpoints ---
 
-@app.get("/")
-def read_root():
-    return {"status": "Service Running", "message": "Access /docs for the API documentation."}
-
-@app.post("/analyze", response_model=AnalysisResult)
-async def analyze_number_endpoint(request: NumberAnalysisRequest):
-    return run_reputation_analysis(request.phone_number)
-
 @app.post("/analyze_voice", response_model=AnalysisResult)
 async def analyze_voice_endpoint(audio_file: UploadFile = File(...)):
-    """
-    Analyzes an audio snippet for deepfake characteristics (Layer 2).
-    """
-    # Read file content safely as raw bytes
     contents = await audio_file.read()
-    
-    # Run the memory-safe inference function
     return run_ml_inference(contents)
+
+
+@app.get("/")
+def read_root():
+    return {"status": "Service Running", "message": "Access /docs for API documentation."}

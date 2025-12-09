@@ -1,8 +1,5 @@
-fastapi
-uvicorn
-pydantic
-gunicorn
-python-multipart
-# CRITICAL FIX: Only include basic NumPy for memory-safe acoustic analysis
-numpy
-torch
+fastapi==0.107.0
+uvicorn==0.23.2
+numpy==1.26.0
+torch==2.2.0
+torchaudio==2.2.0
